@@ -3,10 +3,8 @@ services:
     name: horoscope-api
     env: python
     plan: free
-    buildCommand: "pip install -r requirements.txt"
+    buildCommand: "pip install -r requirements.txt && python scripts/load_to_sqlite.py"
     startCommand: "gunicorn --bind 0.0.0.0:$PORT app:app"
     envVars:
-      - key: DATA_DIR
-        value: ./data
-      - key: PYTHON_VERSION
-        value: 3.11.9
+      - key: DB_PATH
+        value: data/horoscope.db
