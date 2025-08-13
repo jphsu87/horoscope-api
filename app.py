@@ -1,5 +1,5 @@
 # app.py
-import os, glob, time
+import os, glob, time, re
 from datetime import date, datetime
 from functools import lru_cache
 from typing import Optional, Tuple
@@ -52,6 +52,48 @@ def newest_file_mtime(path: str) -> float:
         return os.path.getmtime(path)
     except FileNotFoundError:
         return 0.0
+    
+# ----------------------------
+# Availability scanner
+# ----------------------------
+def scan_availability():
+    """
+    Inspect DATA_DIR and list which months exist per sign and period.
+    Returns: { "aries": {"daily":[...], "weekly":[...], "monthly":[...]}, ... }
+    """
+    out = {}
+    if not os.path.isdir(DATA_DIR):
+        return out
+
+    pattern = re.compile(
+        r"^(?P<sign>[a-z]+)_(?P<ym>\d{4}-\d{2})_(?P<period>daily|weekly|monthly).*\.csv$"
+    )
+
+    for fn in os.listdir(DATA_DIR):
+        m = pattern.match(fn)
+        if not m:
+            continue
+        sign = m.group("sign")
+        ym   = m.group("ym")
+        per  = m.group("period")
+        out.setdefault(sign, {"daily": [], "weekly": [], "monthly": []})
+        out[sign][per].append(ym)
+
+    # de-dupe + sort
+    for sign in out:
+        for per in out[sign]:
+            out[sign][per] = sorted(set(out[sign][per]))
+    return out
+
+@app.route("/api/v1/availability")
+def availability():
+    """
+    Example:
+      GET /api/v1/availability
+    Response:
+      { "aries": {"daily":["2025-08"], "weekly":["2025-08"], "monthly":["2025-08"]}, ... }
+    """
+    return jsonify(scan_availability())
 
 # ----------------------------
 # CSV Discovery
