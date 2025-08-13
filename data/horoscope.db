@@ -1,0 +1,74 @@
+# scripts/load_to_sqlite.py
+import os, glob, csv, sqlite3
+
+DATA_DIR = "data"
+DB_PATH = os.path.join(DATA_DIR, "horoscope.db")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+con = sqlite3.connect(DB_PATH)
+cur = con.cursor()
+
+cur.executescript("""
+PRAGMA journal_mode=WAL;
+DROP TABLE IF EXISTS daily;
+DROP TABLE IF EXISTS weekly;
+DROP TABLE IF EXISTS monthly;
+
+CREATE TABLE daily(
+  date TEXT,            -- YYYY-MM-DD
+  sign TEXT,            -- aries..pisces (lowercase)
+  category TEXT,
+  forecast TEXT,
+  stars INTEGER
+);
+
+CREATE TABLE weekly(
+  week_start TEXT,      -- YYYY-MM-DD (Mon)
+  week_end   TEXT,      -- YYYY-MM-DD (Sun)
+  sign TEXT,
+  category TEXT,
+  forecast TEXT,
+  stars INTEGER
+);
+
+CREATE TABLE monthly(
+  month TEXT,           -- YYYY-MM
+  sign TEXT,
+  category TEXT,
+  forecast TEXT,
+  stars INTEGER
+);
+
+CREATE INDEX idx_daily   ON daily(sign, date);
+CREATE INDEX idx_weekly  ON weekly(sign, week_start, week_end);
+CREATE INDEX idx_monthly ON monthly(sign, month);
+""")
+
+def load_csvs(pattern, table, cols):
+  for path in sorted(glob.glob(os.path.join(DATA_DIR, pattern))):
+    with open(path, encoding="utf-8-sig", newline="") as f:
+      r = csv.DictReader(f)
+      rows = []
+      for row in r:
+        # Normalize types/values
+        if "sign" in row and row["sign"]:
+          row["sign"] = row["sign"].strip().lower()
+        if "stars" in row and row["stars"]:
+          try:
+            row["stars"] = int(row["stars"])
+          except:
+            row["stars"] = 3
+        rows.append([row.get(c, "") for c in cols])
+      if rows:
+        q = f"INSERT INTO {table}({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})"
+        cur.executemany(q, rows)
+        print(f"Loaded {len(rows):4d} rows from {os.path.basename(path)} into {table}")
+
+# Load all CSVs you’ve been using
+load_csvs("*daily*.csv",   "daily",   ["date","sign","category","forecast","stars"])
+load_csvs("*weekly*.csv",  "weekly",  ["week_start","week_end","sign","category","forecast","stars"])
+load_csvs("*monthly*.csv", "monthly", ["month","sign","category","forecast","stars"])
+
+con.commit()
+con.close()
+print(f"✅ SQLite ready at {DB_PATH}")
