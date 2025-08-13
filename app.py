@@ -35,7 +35,6 @@ def daily():
     qdate = request.args.get("date", "")
 
     if not qdate:
-        # pick latest date we have for this sign
         row = one("SELECT MAX(date) AS d FROM daily WHERE sign=?", (sign,))
         qdate = (row["d"] if row and row["d"] else "")
 
@@ -71,7 +70,6 @@ def weekly():
     we   = request.args.get("week_end", "")
     month = request.args.get("month", "")
 
-    # choose a week
     if not (ws and we):
         if month:
             row = one("""SELECT week_start, week_end
@@ -141,8 +139,39 @@ def monthly():
         "items": rows
     })
 
+@app.route("/api/v1/availability")
+def availability():
+    # minimal: months per sign/period from DB
+    out = {}
+    # daily months
+    rows = q("SELECT sign, substr(date,1,7) AS ym FROM daily GROUP BY sign, ym ORDER BY sign, ym")
+    for r in rows:
+        out.setdefault(r["sign"], {"daily": [], "weekly": [], "monthly": []})
+        out[r["sign"]]["daily"].append(r["ym"])
+    # weekly months (from either week_start or week_end)
+    rows = q("SELECT sign, substr(week_start,1,7) AS ym FROM weekly GROUP BY sign, ym ORDER BY sign, ym")
+    for r in rows:
+        out.setdefault(r["sign"], {"daily": [], "weekly": [], "monthly": []})
+        if r["ym"] not in out[r["sign"]]["weekly"]:
+            out[r["sign"]]["weekly"].append(r["ym"])
+    rows = q("SELECT sign, substr(week_end,1,7) AS ym FROM weekly GROUP BY sign, ym ORDER BY sign, ym")
+    for r in rows:
+        out.setdefault(r["sign"], {"daily": [], "weekly": [], "monthly": []})
+        if r["ym"] not in out[r["sign"]]["weekly"]:
+            out[r["sign"]]["weekly"].append(r["ym"])
+    # monthly months
+    rows = q("SELECT sign, month FROM monthly GROUP BY sign, month ORDER BY sign, month")
+    for r in rows:
+        out.setdefault(r["sign"], {"daily": [], "weekly": [], "monthly": []})
+        out[r["sign"]]["monthly"].append(r["month"])
+    # sort arrays
+    for sign in out:
+        out[sign]["daily"].sort()
+        out[sign]["weekly"].sort()
+        out[sign]["monthly"].sort()
+    return jsonify(out)
+
 @app.route("/health")
 def health():
-    # tiny sanity check
     d_count = one("SELECT COUNT(*) AS c FROM daily") or {"c": 0}
     return jsonify({"ok": True, "db": DB_PATH, "daily_rows": d_count["c"]})

@@ -1,58 +1,74 @@
-import sqlite3
-import pandas as pd
-from pathlib import Path
+# scripts/load_to_sqlite.py
+import os, glob, csv, sqlite3
 
-# Paths
-db_path = Path(__file__).parent.parent / "data" / "horoscope.db"
-csv_dir = Path(__file__).parent.parent / "csv"
+DATA_DIR = "data"
+DB_PATH = os.path.join(DATA_DIR, "horoscope.db")
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Connect to DB
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
+con = sqlite3.connect(DB_PATH)
+cur = con.cursor()
 
-# Create tables if not exist
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS daily_forecast (
-    sign TEXT,
-    date TEXT,
-    category TEXT,
-    forecast TEXT,
-    stars INTEGER
-)
+cur.executescript("""
+PRAGMA journal_mode=WAL;
+DROP TABLE IF EXISTS daily;
+DROP TABLE IF EXISTS weekly;
+DROP TABLE IF EXISTS monthly;
+
+CREATE TABLE daily(
+  date TEXT,            -- YYYY-MM-DD
+  sign TEXT,            -- aries..pisces (lowercase)
+  category TEXT,
+  forecast TEXT,
+  stars INTEGER
+);
+
+CREATE TABLE weekly(
+  week_start TEXT,      -- YYYY-MM-DD (Mon)
+  week_end   TEXT,      -- YYYY-MM-DD (Sun)
+  sign TEXT,
+  category TEXT,
+  forecast TEXT,
+  stars INTEGER
+);
+
+CREATE TABLE monthly(
+  month TEXT,           -- YYYY-MM
+  sign TEXT,
+  category TEXT,
+  forecast TEXT,
+  stars INTEGER
+);
+
+CREATE INDEX idx_daily   ON daily(sign, date);
+CREATE INDEX idx_weekly  ON weekly(sign, week_start, week_end);
+CREATE INDEX idx_monthly ON monthly(sign, month);
 """)
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS weekly_forecast (
-    sign TEXT,
-    week_start TEXT,
-    category TEXT,
-    forecast TEXT,
-    stars INTEGER
-)
-""")
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS monthly_forecast (
-    sign TEXT,
-    month TEXT,
-    category TEXT,
-    forecast TEXT,
-    stars INTEGER
-)
-""")
 
-# Load CSVs into tables
-for csv_file in csv_dir.glob("daily_*.csv"):
-    df = pd.read_csv(csv_file)
-    df.to_sql("daily_forecast", conn, if_exists="append", index=False)
+def load_csvs(pattern, table, cols):
+  for path in sorted(glob.glob(os.path.join(DATA_DIR, pattern))):
+    with open(path, encoding="utf-8-sig", newline="") as f:
+      r = csv.DictReader(f)
+      rows = []
+      for row in r:
+        # normalize
+        if "sign" in row and row["sign"]:
+          row["sign"] = row["sign"].strip().lower()
+        if "stars" in row and row["stars"]:
+          try:
+            row["stars"] = int(row["stars"])
+          except:
+            row["stars"] = 3
+        rows.append([row.get(c, "") for c in cols])
+      if rows:
+        q = f"INSERT INTO {table}({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})"
+        cur.executemany(q, rows)
+        print(f"Loaded {len(rows):4d} rows from {os.path.basename(path)} into {table}")
 
-for csv_file in csv_dir.glob("weekly_*.csv"):
-    df = pd.read_csv(csv_file)
-    df.to_sql("weekly_forecast", conn, if_exists="append", index=False)
+# Load your existing files in data/
+load_csvs("*daily*.csv",   "daily",   ["date","sign","category","forecast","stars"])
+load_csvs("*weekly*.csv",  "weekly",  ["week_start","week_end","sign","category","forecast","stars"])
+load_csvs("*monthly*.csv", "monthly", ["month","sign","category","forecast","stars"])
 
-for csv_file in csv_dir.glob("monthly_*.csv"):
-    df = pd.read_csv(csv_file)
-    df.to_sql("monthly_forecast", conn, if_exists="append", index=False)
-
-conn.commit()
-conn.close()
-
-print("✅ All CSVs loaded into SQLite database!")
+con.commit()
+con.close()
+print(f"✅ SQLite ready at {DB_PATH}")
