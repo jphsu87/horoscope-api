@@ -2,6 +2,8 @@
 import os, sqlite3
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from datetime import datetime
+
 
 # Shared ORDER BY clause to ensure "Overall" comes first
 ORDER_BY_CATEGORY = """
@@ -85,18 +87,47 @@ def weekly():
     month = request.args.get("month", "")
 
     if not (ws and we):
-        if month:
-            row = one("""SELECT week_start, week_end
-                         FROM weekly
-                         WHERE sign=? AND (substr(week_start,1,7)=? OR substr(week_end,1,7)=?)
-                         ORDER BY week_start ASC
-                         LIMIT 1""", (sign, month, month))
-        else:
-            row = one("""SELECT week_start, week_end
-                         FROM weekly
-                         WHERE sign=?
-                         ORDER BY week_start ASC
-                         LIMIT 1""", (sign,))
+         # 1) Try the week that contains "today"
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        row = one("""
+            SELECT week_start, week_end
+            FROM weekly
+            WHERE sign=? AND week_start <= ? AND week_end >= ?
+            ORDER BY week_start DESC
+            LIMIT 1
+        """, (sign, today, today))
+
+    # 2) If a month is provided and the "today" week wasn't found (or today not in that month),
+        #    pick the first week inside that month as a clear default.
+        if not row and month:
+            row = one("""
+                SELECT week_start, week_end
+                FROM weekly
+                WHERE sign=? AND (substr(week_start,1,7)=? OR substr(week_end,1,7)=?)
+                ORDER BY week_start ASC
+                LIMIT 1
+            """, (sign, month, month))
+
+        # 3) If still nothing, pick the most recent week that started on/before today.
+        if not row:
+            row = one("""
+                SELECT week_start, week_end
+                FROM weekly
+                WHERE sign=? AND week_start <= ?
+                ORDER BY week_start DESC
+                LIMIT 1
+            """, (sign, today))
+
+        # 4) Final fallback: very first available week for that sign.
+        if not row:
+            row = one("""
+                SELECT week_start, week_end
+                FROM weekly
+                WHERE sign=?
+                ORDER BY week_start ASC
+                LIMIT 1
+            """, (sign,))
+
         if row:
             ws, we = row["week_start"], row["week_end"]
 
