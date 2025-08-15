@@ -3,6 +3,20 @@ import os, sqlite3
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+# Shared ORDER BY clause to ensure "Overall" comes first
+ORDER_BY_CATEGORY = """
+ORDER BY CASE category
+  WHEN 'Overall' THEN 0
+  WHEN 'Career & Work' THEN 1
+  WHEN 'Finance & Money' THEN 2
+  WHEN 'Health & Wellness' THEN 3
+  WHEN 'Love & Relationships' THEN 4
+  WHEN 'Luck & Opportunities' THEN 5
+  WHEN 'Travel & Adventure' THEN 6
+  ELSE 99
+END
+"""
+
 app = Flask(__name__)
 CORS(app)
 
@@ -42,13 +56,13 @@ def daily():
     if category:
         rows = q("""SELECT category, forecast, COALESCE(stars,3) AS stars
                     FROM daily
-                    WHERE sign=? AND date=? AND LOWER(category)=?""",
+                    WHERE sign=? AND date=? AND LOWER(category)=?""" + ORDER_BY_CATEGORY,
                  (sign, qdate, norm(category)))
     else:
         rows = q("""SELECT category, forecast, COALESCE(stars,3) AS stars
                     FROM daily
                     WHERE sign=? AND date=?
-                    ORDER BY category""", (sign, qdate))
+                    """ + ORDER_BY_CATEGORY, (sign, qdate))
 
     return jsonify({
         "period": "daily",
@@ -90,13 +104,13 @@ def weekly():
     if category:
         rows = q("""SELECT category, forecast, COALESCE(stars,3) AS stars
                     FROM weekly
-                    WHERE sign=? AND week_start=? AND week_end=? AND LOWER(category)=?""",
+                    WHERE sign=? AND week_start=? AND week_end=? AND LOWER(category)=?""" + ORDER_BY_CATEGORY,
                  (sign, ws, we, norm(category)))
     else:
         rows = q("""SELECT category, forecast, COALESCE(stars,3) AS stars
                     FROM weekly
                     WHERE sign=? AND week_start=? AND week_end=?
-                    ORDER BY category""", (sign, ws, we))
+                    """ + ORDER_BY_CATEGORY, (sign, ws, we))
 
     return jsonify({
         "period": "weekly",
@@ -124,13 +138,13 @@ def monthly():
     if category:
         rows = q("""SELECT category, forecast, COALESCE(stars,3) AS stars
                     FROM monthly
-                    WHERE sign=? AND month=? AND LOWER(category)=?""",
-                 (sign, month, norm(category)))
+                    WHERE sign=? AND month=? AND LOWER(category)=?""" + ORDER_BY_CATEGORY,
+                    (sign, month, norm(category)))
     else:
         rows = q("""SELECT category, forecast, COALESCE(stars,3) AS stars
                     FROM monthly
                     WHERE sign=? AND month=?
-                    ORDER BY category""", (sign, month))
+                    """ + ORDER_BY_CATEGORY, (sign, month))
 
     return jsonify({
         "period": "monthly",
